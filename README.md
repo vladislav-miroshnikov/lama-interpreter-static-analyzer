@@ -44,5 +44,5 @@ time ./lama-vm interpret Sort.bc
 Example of time measurement for Lama recursive interpreter (need to pass empty stdin file):
 ```bash
 touch empty
-time lama -i Sort.lama < empty
+time lamac -i Sort.lama < empty
 ```
