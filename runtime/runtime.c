@@ -1226,8 +1226,6 @@ extern void* Bsexp_my (int bn, int tag, int *data_) {
     data   *d;
     int n = UNBOX(bn);
 
-    __pre_gc () ;
-
 #ifdef DEBUG_PRINT
     indent++; print_indent ();
   printf("Bsexp: allocate %zu!\n",sizeof(int) * (n+1)); fflush (stdout);
@@ -1253,8 +1251,6 @@ extern void* Bsexp_my (int bn, int tag, int *data_) {
   printf("Bsexp: ends\n"); fflush (stdout);
   indent--;
 #endif
-
-    __post_gc();
 
     return d->contents;
 }
@@ -1447,7 +1443,7 @@ extern void* LgetEnv (char *var) {
     void *s;
 
     if (e == NULL)
-        return BOX(0);
+        return (void *) BOX(0);
 
     __pre_gc ();
 
@@ -1579,9 +1575,9 @@ extern void* Lfexists (char *fname) {
 
     f = fopen (fname, "r");
 
-    if (f) return BOX(1);
+    if (f) return (void *) BOX(1);
 
-    return BOX(0);
+    return (void *) BOX(0);
 }
 
 extern void* Lfst (void *v) {
