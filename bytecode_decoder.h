@@ -74,25 +74,23 @@ enum PATT_TYPE {
     PATT_TAG_CLOSURE
 };
 
-u_int8_t high_bits(const u_int8_t instruction) {
+typedef enum {
+    BINOP_HIGH_BITS = 0x00,
+    LD_HIGH_BITS = 0x02,
+    LDA_HIGH_BITS = 0x03,
+    ST_HIGH_BITS = 0x04,
+    PATT_HIGH_BITS = 0x06
+} bytecode_high_bits;
+
+static inline u_int8_t high_bits(const u_int8_t instruction) {
     return (instruction & HIGH_BITS_MASK) >> LOW_BITS_COUNT;
 }
 
-u_int8_t low_bits(const u_int8_t instruction) {
+static inline u_int8_t low_bits(const u_int8_t instruction) {
     return instruction & LOW_BITS_MASK;
 }
 
-#define BINOP_HIGH_BITS 0x00
-
-#define LD_HIGH_BITS 0x02
-
-#define LDA_HIGH_BITS 0x03
-
-#define ST_HIGH_BITS 0x04
-
-#define PATT_HIGH_BITS 0x06
-
-bytecode_type get_bytecode_type(const u_int8_t ip) {
+static inline bytecode_type get_bytecode_type(const u_int8_t ip) {
     u_int8_t h = high_bits(ip);
     switch (h) {
         case BINOP_HIGH_BITS:
