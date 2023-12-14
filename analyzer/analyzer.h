@@ -5,17 +5,17 @@
 #include "stdio.h"
 #include "malloc.h"
 #include "../byte_file.h"
-#include "../hashtable/hashtable.h"
-#include "../hashtable/hashtable_utility.h"
-#include "../hashtable/hashtable_itr.h"
+#include "../set/set.h"
 
 typedef struct {
-    char *ip;
+    const char *ip;
     int frequency;
     int length;
 } bytecode;
 
-int bytecode_comparator(bytecode *bytecode1, bytecode *bytecode2) {
+int bytecode_comparator(void *ut1, void *ut2) {
+    bytecode *bytecode1 = (bytecode *) ut1;
+    bytecode *bytecode2 = (bytecode *) ut2;
     return !memcmp(bytecode1->ip, bytecode2->ip, bytecode1->length) && bytecode1->length == bytecode2->length;
 }
 
@@ -23,27 +23,18 @@ int frequency_comparator(const bytecode *bytecode1, const bytecode *bytecode2) {
     return bytecode2->frequency - bytecode1->frequency;
 }
 
-unsigned int hash_bytecode(const bytecode *bc) {
-    size_t hash = 0;
-    for (int i = 0; i < bc->length; ++i) {
-        hash = bc->ip[i] + (hash << 8);
-    }
-    return hash;
-}
-
-static const char *const binop_types[] = {"+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!=", "&&", "!!"};
-static const char *const patt_types[] = {"=str", "#string", "#array", "#sexp", "#ref", "#val", "#fun"};
-static const char *const load_types[] = {"LD", "LDA", "ST"};
-
-
 int empty_printer(FILE *f, const char *value, ...) {
     return 0;
 }
 
-char *analyze_bytecode(FILE *f, byte_file *byteFile, char *ip, int (*printer)(FILE *, const char *, ...)) {
+const char *analyze_bytecode(FILE *f, byte_file *byteFile, const char *ip, int (*printer)(FILE *, const char *, ...)) {
 #define NEXT_BYTE  (*ip++)
 #define NEXT_INT (ip += sizeof(int), *(int*)(ip - sizeof(int)))
 #define NEXT_STRING (byteFile->string_ptr + NEXT_INT)
+    static const char *const binop_types[] = {"+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!=", "&&", "!!"};
+    static const char *const patt_types[] = {"=str", "#string", "#array", "#sexp", "#ref", "#val", "#fun"};
+    static const char *const load_types[] = {"LD", "LDA", "ST"};
+
     u_int8_t bytecode = NEXT_BYTE;
     bytecode_type bc_type = get_bytecode_type(bytecode);
     switch (high_bits(bytecode)) {
@@ -84,7 +75,7 @@ char *analyze_bytecode(FILE *f, byte_file *byteFile, char *ip, int (*printer)(FI
             printer(f, "CONST\t%d", NEXT_INT);
             break;
         }
-        case STRING: {
+        case XSTRING: {
             printer(f, "STRING\t%s", NEXT_STRING);
             break;
         }
@@ -222,58 +213,50 @@ char *analyze_bytecode(FILE *f, byte_file *byteFile, char *ip, int (*printer)(FI
 }
 
 void analyze_bytecode_frequency(FILE *f, byte_file *byteFile) {
-    char *ip = byteFile->code_ptr;
-    struct hashtable *ht = create_hashtable(1000, (unsigned int (*)(void *)) hash_bytecode,
-                                            (int (*)(void *, void *)) bytecode_comparator);
-    int total_different_bytecodes = 0;
+    const char *ip = byteFile->code_ptr;
+    struct set *s = set_init();
+    struct adt_funcs adt;
+    adt.ptr_equality = bytecode_comparator;
+    set_add_adt(s, &adt, USER_DEFINED);
     while (ip < byteFile->code_ptr + byteFile->bytecode_size) {
         bytecode *bc = malloc(sizeof(bytecode));
         if (bc == NULL) {
             failure("Severity ERROR: Can't allocate memory.\n");
         }
-        char *next_ip = analyze_bytecode(f, byteFile, ip, &empty_printer);
+        const char *next_ip = analyze_bytecode(f, byteFile, ip, &empty_printer);
         bc->ip = ip;
         bc->length = next_ip - ip;
         ip = next_ip;
-        int *curr_freq = (int *) (hashtable_search(ht, bc));
-        if (curr_freq != NULL) {
-            int *new_freq = malloc(sizeof(int));
-            if (new_freq == NULL) {
-                failure("Severity ERROR: Can't allocate memory.\n");
-            }
-            new_freq[0] = *curr_freq + 1;
-            bc->frequency = *curr_freq + 1;
-            hashtable_change(ht, bc, new_freq);
+        struct node *n = find_node(s, (void *) bc, USER_DEFINED);
+        if (n != NULL) {
+            bytecode *existed_bc = (bytecode *) node_get_data(n);
+            existed_bc->frequency++;
+            free(bc);
         } else {
-            int *new_freq = malloc(sizeof(int));
-            if (new_freq == NULL) {
-                failure("Severity ERROR: Can't allocate memory.\n");
-            }
-            new_freq[0] = 1;
             bc->frequency = 1;
-            hashtable_insert(ht, bc, new_freq);
-            total_different_bytecodes++;
+            set_add(s, (void *) bc, USER_DEFINED);
         }
     }
 
-    bytecode *different_bytecodes = malloc(total_different_bytecodes * sizeof(bytecode));
-    if (different_bytecodes == NULL) {
+    bytecode *bytecodes = malloc(s->num * sizeof(bytecode));
+    if (bytecodes == NULL) {
         failure("Severity ERROR: Can't allocate memory.\n");
     }
-    struct hashtable_itr *ht_iter = hashtable_iterator(ht);
-    int i = 0;
-    do {
-        bytecode *key = hashtable_iterator_key(ht_iter);
-        int *freq = hashtable_iterator_value(ht_iter);
-        bytecode bc = {.ip = key->ip, .frequency = *freq, .length = key->length};
-        different_bytecodes[i++] = bc;
-    } while (hashtable_iterator_advance(ht_iter));
 
-    qsort(different_bytecodes, total_different_bytecodes, sizeof(bytecode), (__compar_fn_t) frequency_comparator);
-    for (int i = 0; i < total_different_bytecodes; ++i) {
-        fprintf(f, "%d occurrences of bytecode: \"", different_bytecodes[i].frequency);
-        analyze_bytecode(f, byteFile, different_bytecodes[i].ip, &fprintf);
+    struct node *n;
+    int i = 0;
+    for (n = set_first(s); set_done(s); n = set_next(s)) {
+        bytecode *set_bc = (bytecode *) node_get_data(n);
+        bytecode bc = {.ip = set_bc->ip, .frequency = set_bc->frequency, .length = set_bc->length};
+        bytecodes[i++] = bc;
+    }
+
+    qsort(bytecodes, s->num, sizeof(bytecode), (__compar_fn_t) frequency_comparator);
+    for (int i = 0; i < s->num; ++i) {
+        fprintf(f, "%d occurrences of bytecode: \"", bytecodes[i].frequency);
+        analyze_bytecode(f, byteFile, bytecodes[i].ip, &fprintf);
         fprintf(f, "\"\n");
     }
-    hashtable_destroy(ht, 1);
+    free(bytecodes);
+    set_free(s);
 }

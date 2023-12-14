@@ -9,7 +9,7 @@
 typedef enum {
     BINOP = 0x00,
     CONST = 0x10,
-    STRING = 0x11,
+    XSTRING = 0x11,
     SEXP = 0x12,
     STI = 0x13,
     STA = 0x14,

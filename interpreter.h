@@ -439,7 +439,7 @@ void interpret() {
             EXEC_WITH_LOWER_BITS(PATT, patt)
             /** interpret other bytecodes  */
             EXEC(CONST, const)
-            EXEC(STRING, string)
+            EXEC(XSTRING, string)
             EXEC(SEXP, sexp)
             EXEC(STA, sta)
             EXEC(JMP, jmp)
